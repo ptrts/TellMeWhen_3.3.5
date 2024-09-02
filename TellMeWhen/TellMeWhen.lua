@@ -16,6 +16,8 @@ local IsEquippedItem = IsEquippedItem
 local UnitBuff, UnitDebuff = UnitBuff, UnitDebuff
 local hasElvUI
 
+local clipboard = {}
+
 local LiCD = LibStub("LibInternalCooldowns", true)
 if LiCD and LiCD.GetItemCooldown then
 	GetItemCooldown = function(...)
@@ -35,7 +37,7 @@ local function TMW_GetSpellTexture(spellName)
 	return GetSpellTexture(spellName)
 end
 
-local maxGroups, maxRows = 8, 7
+local maxGroups, maxColumns, maxRows = 8, 8, 7
 local updateInterval = 0.25
 local activeSpec, _
 local highlightColor = HIGHLIGHT_FONT_COLOR
@@ -68,7 +70,7 @@ local groupDefaults = {
 	SecondarySpec = true
 }
 
-for i = 1, maxRows * maxRows do
+for i = 1, maxColumns * maxRows do
 	groupDefaults.Icons[i] = iconDefaults
 end
 
@@ -153,6 +155,37 @@ local function TellMeWhen_CreateIcon(name, parent, width, height)
 
 	local icon = CreateFrame("Frame", name, parent)
 	icon:SetSize(width, height)
+
+	local border = CreateFrame("Frame", nil, icon)
+	border:SetAllPoints(icon)
+	border:SetFrameStrata("HIGH")
+	border:SetFrameLevel(1)
+
+	local delta = 0
+
+	border.left = border:CreateTexture(nil, "ARTWORK")
+	border.left:SetPoint("BOTTOMLEFT", border, "BOTTOMLEFT", delta, delta)
+	border.left:SetPoint("TOPRIGHT", border, "TOPLEFT", delta + 1, -delta)
+	border.left:SetTexture(1, 0, 0, 1)
+
+	border.right = border:CreateTexture(nil, "BORDER")
+	border.right:SetPoint("BOTTOMLEFT", border, "BOTTOMRIGHT", -(delta + 1), delta)
+	border.right:SetPoint("TOPRIGHT", border, "TOPRIGHT", -delta, -delta)
+	border.right:SetTexture(1, 0, 0, 1)
+
+	border.top = border:CreateTexture(nil, "BORDER")
+	border.top:SetPoint("BOTTOMLEFT", border, "TOPLEFT", delta + 1, -(delta + 1))
+	border.top:SetPoint("TOPRIGHT", border, "TOPRIGHT", -(delta + 1), -delta)
+	border.top:SetTexture(1, 0, 0, 1)
+
+	border.bottom = border:CreateTexture(nil, "BORDER")
+	border.bottom:SetPoint("BOTTOMLEFT", border, "BOTTOMLEFT", delta + 1, delta)
+	border.bottom:SetPoint("TOPRIGHT", border, "BOTTOMRIGHT", -(delta + 1), delta + 1)
+	border.bottom:SetTexture(1, 0, 0, 1)
+
+	icon.border = border
+
+	icon.border:Hide()
 
 	local t = icon:CreateTexture(nil, "BACKGROUND")
 	t:SetTexture([[Interface\DialogFrame\UI-DialogBox-Background]])
@@ -673,6 +706,14 @@ do
 		hideOnEscape = 1
 	}
 
+	StaticPopupDialogs["TELLMEWHEN_SIMPLE_DIALOG"] = {
+		text = "%s",
+		button1 = "OK",
+		timeout = 0,
+		whileDead = true,
+		hideOnEscape = true,
+	}
+
 	local TellMeWhen_IconMenu_CooldownOptions = {
 		{value = "CooldownType", text = L["Cooldown type"], hasArrow = true},
 		{value = "CooldownShowWhen", text = L["Show icon when"], hasArrow = true},
@@ -788,17 +829,205 @@ do
 		local enabled = DB.Groups[groupID].Icons[iconID]["Enabled"]
 
 		if UIDROPDOWNMENU_MENU_LEVEL >= 2 then
-			local subMenus = TellMeWhen_IconMenu_SubMenus
-			for index, value in ipairs(subMenus[UIDROPDOWNMENU_MENU_VALUE]) do
-				local info = UIDropDownMenu_CreateInfo()
-				info.text = subMenus[UIDROPDOWNMENU_MENU_VALUE][index].text
-				info.isTitle = subMenus[UIDROPDOWNMENU_MENU_VALUE][index].isTitle
-				info.disabled = subMenus[UIDROPDOWNMENU_MENU_VALUE][index].disabled
-				info.value = subMenus[UIDROPDOWNMENU_MENU_VALUE][index].value
-				info.hasArrow = subMenus[UIDROPDOWNMENU_MENU_VALUE][index].hasArrow
-				info.checked = (info.value == DB.Groups[groupID].Icons[iconID][UIDROPDOWNMENU_MENU_VALUE])
-				info.func = core.IconMenu_ChooseSetting
-				UIDropDownMenu_AddButton(info, UIDROPDOWNMENU_MENU_LEVEL)
+			local settingVariantsSubMenu = TellMeWhen_IconMenu_SubMenus[UIDROPDOWNMENU_MENU_VALUE]
+			if settingVariantsSubMenu ~= nil then
+				local settingName = UIDROPDOWNMENU_MENU_VALUE
+				for _, subMenuButton in ipairs(settingVariantsSubMenu) do
+					local settingVariantInfo = UIDropDownMenu_CreateInfo()
+					settingVariantInfo.text = subMenuButton.text
+					settingVariantInfo.isTitle = subMenuButton.isTitle
+					settingVariantInfo.disabled = subMenuButton.disabled
+					settingVariantInfo.value = subMenuButton.value
+					settingVariantInfo.hasArrow = subMenuButton.hasArrow
+					settingVariantInfo.checked = (settingVariantInfo.value == DB.Groups[groupID].Icons[iconID][settingName])
+					settingVariantInfo.func = core.IconMenu_ChooseSetting
+					UIDropDownMenu_AddButton(settingVariantInfo, UIDROPDOWNMENU_MENU_LEVEL)
+				end
+			end
+			local submenuInfo
+			if UIDROPDOWNMENU_MENU_VALUE == "Row" then
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Row"]
+				submenuInfo.disabled = true
+				submenuInfo.isTitle = true
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Copy"]
+				submenuInfo.func = core.IconMenu_Row_Copy
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Cut"]
+				submenuInfo.func = core.IconMenu_Row_Cut
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Paste"]
+				submenuInfo.func = core.IconMenu_Row_Paste
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Insert"]
+				submenuInfo.func = core.IconMenu_Row_Insert
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Add"]
+				submenuInfo.func = core.IconMenu_Row_Add
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Delete"]
+				submenuInfo.func = core.IconMenu_Row_Delete
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Up"]
+				submenuInfo.func = core.IconMenu_Row_Up
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Down"]
+				submenuInfo.func = core.IconMenu_Row_Down
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Clear"]
+				submenuInfo.func = core.IconMenu_Row_Clear
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.disabled = true
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Icon in row"]
+				submenuInfo.disabled = true
+				submenuInfo.isTitle = true
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Insert"]
+				submenuInfo.func = core.IconMenu_Row_Icon_Insert
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Delete"]
+				submenuInfo.func = core.IconMenu_Row_Icon_Delete
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Left"]
+				submenuInfo.func = core.IconMenu_Row_Icon_Left
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Right"]
+				submenuInfo.func = core.IconMenu_Row_Icon_Right
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+			elseif UIDROPDOWNMENU_MENU_VALUE == "Column" then
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Column"]
+				submenuInfo.disabled = true
+				submenuInfo.isTitle = true
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Copy"]
+				submenuInfo.func = core.IconMenu_Column_Copy
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Cut"]
+				submenuInfo.func = core.IconMenu_Column_Cut
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Paste"]
+				submenuInfo.func = core.IconMenu_Column_Paste
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Insert"]
+				submenuInfo.func = core.IconMenu_Column_Insert
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Add"]
+				submenuInfo.func = core.IconMenu_Column_Add
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Delete"]
+				submenuInfo.func = core.IconMenu_Column_Delete
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Clear"]
+				submenuInfo.func = core.IconMenu_Column_Clear
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Left"]
+				submenuInfo.func = core.IconMenu_Column_Left
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Right"]
+				submenuInfo.func = core.IconMenu_Column_Right
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.disabled = true
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Icon in column"]
+				submenuInfo.disabled = true
+				submenuInfo.isTitle = true
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Insert"]
+				submenuInfo.func = core.IconMenu_Column_Icon_Insert
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Delete"]
+				submenuInfo.func = core.IconMenu_Column_Icon_Delete
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Up"]
+				submenuInfo.func = core.IconMenu_Column_Icon_Up
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Down"]
+				submenuInfo.func = core.IconMenu_Column_Icon_Down
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+			elseif UIDROPDOWNMENU_MENU_VALUE == "Group" then
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Group"]
+				submenuInfo.disabled = true
+				submenuInfo.isTitle = true
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Copy"]
+				submenuInfo.func = core.IconMenu_Group_Copy
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Paste"]
+				submenuInfo.func = core.IconMenu_Group_Paste
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
+
+				submenuInfo = UIDropDownMenu_CreateInfo()
+				submenuInfo.text = L["Clear"]
+				submenuInfo.func = core.IconMenu_Group_Clear
+				UIDropDownMenu_AddButton(submenuInfo, UIDROPDOWNMENU_MENU_LEVEL)
 			end
 			return
 		end
@@ -837,9 +1066,9 @@ do
 
 		-- additional options
 		if
-			iconType == "cooldown" or iconType == "buff" or iconType == "reactive" or iconType == "wpnenchant" or
+		iconType == "cooldown" or iconType == "buff" or iconType == "reactive" or iconType == "wpnenchant" or
 				iconType == "totem"
-		 then
+		then
 			info = UIDropDownMenu_CreateInfo()
 			info.disabled = true
 			UIDropDownMenu_AddButton(info)
@@ -869,28 +1098,953 @@ do
 				info.keepShownOnClick = true
 				UIDropDownMenu_AddButton(info)
 			end
-		else
-			info = UIDropDownMenu_CreateInfo()
-			info.text = L["More options"]
-			info.disabled = true
-			UIDropDownMenu_AddButton(info)
 		end
 
-		-- clear settings
-		if (name and name ~= "") or iconType ~= "" then
-			info = UIDropDownMenu_CreateInfo()
-			info.disabled = true
-			UIDropDownMenu_AddButton(info)
+		info = UIDropDownMenu_CreateInfo()
+		info.disabled = true
+		UIDropDownMenu_AddButton(info)
 
-			info = UIDropDownMenu_CreateInfo()
-			info.text = L["Clear settings"]
-			info.func = core.IconMenu_ClearSettings
-			UIDropDownMenu_AddButton(info)
-		end
+		info = UIDropDownMenu_CreateInfo()
+		info.text = L["Copy"]
+		info.func = core.IconMenu_Copy
+		UIDropDownMenu_AddButton(info)
+
+		info = UIDropDownMenu_CreateInfo()
+		info.text = L["Cut"]
+		info.func = core.IconMenu_Cut
+		UIDropDownMenu_AddButton(info)
+
+		info = UIDropDownMenu_CreateInfo()
+		info.text = L["Paste"]
+		info.func = core.IconMenu_Paste
+		UIDropDownMenu_AddButton(info)
+
+		info = UIDropDownMenu_CreateInfo()
+		info.text = L["Clear"]
+		info.func = core.IconMenu_ClearSettings
+		UIDropDownMenu_AddButton(info)
+
+		-- Row
+		info = UIDropDownMenu_CreateInfo()
+		info.value = "Row"
+		info.text = L["Row"]
+		info.hasArrow = true
+		UIDropDownMenu_AddButton(info)
+
+		-- Column
+		info = UIDropDownMenu_CreateInfo()
+		info.value = "Column"
+		info.text = L["Column"]
+		info.hasArrow = true
+		UIDropDownMenu_AddButton(info)
+
+		-- Column
+		info = UIDropDownMenu_CreateInfo()
+		info.value = "Group"
+		info.text = L["Group"]
+		info.hasArrow = true
+		UIDropDownMenu_AddButton(info)
+
+		info = UIDropDownMenu_CreateInfo()
+		info.text = L["Clear clipboard"]
+		info.func = core.Clipboard_Clear
+		UIDropDownMenu_AddButton(info)
 	end
 
 	function core:IconMenu_ShowNameDialog()
 		local dialog = StaticPopup_Show("TELLMEWHEN_CHOOSENAME_DIALOG")
+	end
+
+	function core:Clipboard_Clear()
+		clipboard = {}
+		core:Group_UpdateAll()
+	end
+
+	function core:Group_UpdateAll()
+		for groupID = 1, maxGroups do
+			core:Group_Update(groupID)
+		end
+	end
+
+	function core:IconMenu_Copy()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		core:Clipboard_Clear()
+
+		clipboard.icon = {
+			groupID = groupID,
+			iconID = iconID,
+			data = CopyTable(DB.Groups[groupID].Icons[iconID]),
+		}
+
+		core:Group_UpdateAll()
+	end
+
+	function core:IconMenu_Cut()
+		core:IconMenu_Copy()
+		clipboard.icon.groupID = nil
+		clipboard.icon.iconID = nil
+		core:IconMenu_ClearSettings()
+	end
+
+	function core:IconMenu_Paste()
+		local iconSettings
+
+		local clipboardIcon = clipboard.icon
+		if not clipboardIcon then
+			return
+		end
+
+		iconSettings = clipboardIcon.data
+		if not iconSettings then
+			return
+		end
+
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		DB.Groups[groupID].Icons[iconID] = CopyTable(iconSettings)
+
+		core:Icon_Update(
+				_G["TellMeWhen_Group" .. groupID .. "_Icon" .. iconID],
+				groupID,
+				iconID
+		)
+	end
+
+	function core:IconMenu_Row_Icon_Left()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		if columnIndex == 0 then
+			CloseDropDownMenus()
+			return
+		end
+
+		local leftIconID = iconID - 1
+		local leftIconSettings = DB.Groups[groupID].Icons[leftIconID]
+
+		local thisIconSettings = DB.Groups[groupID].Icons[iconID]
+
+		DB.Groups[groupID].Icons[leftIconID] = thisIconSettings
+		DB.Groups[groupID].Icons[iconID] = leftIconSettings
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Row_Icon_Right()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		if columnIndex == maxColumnIndex then
+			CloseDropDownMenus()
+			return
+		end
+
+		local thisIconSettings = DB.Groups[groupID].Icons[iconID]
+
+		local rightIconID = iconID + 1
+		local rightIconSettings = DB.Groups[groupID].Icons[rightIconID]
+
+		DB.Groups[groupID].Icons[iconID] = rightIconSettings
+		DB.Groups[groupID].Icons[rightIconID] = thisIconSettings
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Column_Icon_Up()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		if rowIndex == 0 then
+			CloseDropDownMenus()
+			return
+		end
+
+		local upIconID = iconID - DB.Groups[groupID].Columns
+		local upIconSettings = DB.Groups[groupID].Icons[upIconID]
+
+		local thisIconSettings = DB.Groups[groupID].Icons[iconID]
+
+		DB.Groups[groupID].Icons[upIconID] = thisIconSettings
+		DB.Groups[groupID].Icons[iconID] = upIconSettings
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Column_Icon_Down()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		if rowIndex == maxRowIndex then
+			CloseDropDownMenus()
+			return
+		end
+
+		local thisIconSettings = DB.Groups[groupID].Icons[iconID]
+
+		local downIconID = iconID + DB.Groups[groupID].Columns
+		local downIconSettings = DB.Groups[groupID].Icons[downIconID]
+
+		DB.Groups[groupID].Icons[iconID] = downIconSettings
+		DB.Groups[groupID].Icons[downIconID] = thisIconSettings
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Row_Icon_Insert()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		local lastIconID = core:Group_GetIconID(groupID, rowIndex, maxColumnIndex)
+
+		local lastIcon = DB.Groups[groupID].Icons[lastIconID]
+
+		if not core:IconSettings_IsEmpty(lastIcon) then
+			StaticPopup_Show("TELLMEWHEN_SIMPLE_DIALOG", "Last icon in row is not empty")
+			CloseDropDownMenus()
+			return
+		end
+
+		for otherColumnIndex = maxColumnIndex - 1, columnIndex, -1 do
+			local otherIconID = core:Group_GetIconID(groupID, rowIndex, otherColumnIndex)
+			DB.Groups[groupID].Icons[otherIconID + 1] = DB.Groups[groupID].Icons[otherIconID]
+		end
+
+		DB.Groups[groupID].Icons[iconID] = CopyTable(iconDefaults)
+
+		core:IconMenu_Paste()
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Column_Icon_Insert()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		local lastIconID = core:Group_GetIconID(groupID, maxRowIndex, columnIndex)
+
+		local lastIcon = DB.Groups[groupID].Icons[lastIconID]
+
+		if not core:IconSettings_IsEmpty(lastIcon) then
+			StaticPopup_Show("TELLMEWHEN_SIMPLE_DIALOG", "Last icon in column is not empty")
+			CloseDropDownMenus()
+			return
+		end
+
+		for otherRowIndex = maxRowIndex - 1, rowIndex, -1 do
+			local otherIconID = core:Group_GetIconID(groupID, otherRowIndex, columnIndex)
+
+			DB.Groups[groupID].Icons[otherIconID + maxColumnIndex + 1] = DB.Groups[groupID].Icons[otherIconID]
+		end
+
+		DB.Groups[groupID].Icons[iconID] = CopyTable(iconDefaults)
+
+		core:IconMenu_Paste()
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Row_Icon_Delete()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		for otherColumnIndex = columnIndex, maxColumnIndex - 1 do
+			local otherIconID = core:Group_GetIconID(groupID, rowIndex, otherColumnIndex)
+
+			DB.Groups[groupID].Icons[otherIconID] = DB.Groups[groupID].Icons[otherIconID + 1]
+		end
+
+		local lastIconID = core:Group_GetIconID(groupID, rowIndex, maxColumnIndex)
+		DB.Groups[groupID].Icons[lastIconID] = CopyTable(iconDefaults)
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Column_Icon_Delete()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		for otherRowIndex = rowIndex, maxRowIndex - 1 do
+			local otherIconID = core:Group_GetIconID(groupID, otherRowIndex, columnIndex)
+
+			DB.Groups[groupID].Icons[otherIconID] = DB.Groups[groupID].Icons[otherIconID + maxColumnIndex + 1]
+		end
+
+		local lastIconID = core:Group_GetIconID(groupID, maxRowIndex, columnIndex)
+		DB.Groups[groupID].Icons[lastIconID] = CopyTable(iconDefaults)
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Row_Delete()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		for columnIndex = 0, maxColumnIndex do
+			for otherRowIndex = rowIndex, maxRowIndex - 1 do
+				local otherIconID = core:Group_GetIconID(groupID, otherRowIndex, columnIndex)
+
+				DB.Groups[groupID].Icons[otherIconID] = DB.Groups[groupID].Icons[otherIconID + maxColumnIndex + 1]
+			end
+
+			local lastIconID = core:Group_GetIconID(groupID, maxRowIndex, columnIndex)
+			DB.Groups[groupID].Icons[lastIconID] = CopyTable(iconDefaults)
+		end
+
+		if DB.Groups[groupID].Rows > 1 then
+			DB.Groups[groupID].Rows = DB.Groups[groupID].Rows - 1
+		end
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Column_Delete()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+
+		for rowIndex = 0, maxRowIndex do
+			for otherColumnIndex = columnIndex, maxColumnIndex - 1 do
+				local otherIconID = core:Group_GetIconID(groupID, rowIndex, otherColumnIndex)
+
+				DB.Groups[groupID].Icons[otherIconID] = DB.Groups[groupID].Icons[otherIconID + 1]
+			end
+
+			local lastIconID = core:Group_GetIconID(groupID, rowIndex, maxColumnIndex)
+			DB.Groups[groupID].Icons[lastIconID] = CopyTable(iconDefaults)
+		end
+
+		if DB.Groups[groupID].Columns > 1 then
+
+			for rowIndex = 0, maxRowIndex do
+				local removedIconID = core:Group_GetIconID(groupID, rowIndex, maxColumnIndex)
+				DB.Groups[groupID].Icons[removedIconID] = CopyTable(iconDefaults)
+			end
+
+			local matrix = core:Group_GetMatrix(groupID)
+
+			DB.Groups[groupID].Columns = DB.Groups[groupID].Columns - 1
+			maxColumnIndex = maxColumnIndex - 1
+
+			core:Group_LoadFromMatrix(groupID, matrix)
+		end
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Row_Copy()
+		core:Clipboard_Clear()
+
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+		local iconIndex = iconID - 1
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		clipboard.row = {
+			groupID = groupID,
+			index = rowIndex,
+			icons = {},
+		}
+
+		for columnIndex = 0, maxColumnIndex do
+			local currentIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex)
+			clipboard.row.icons[columnIndex] = CopyTable(DB.Groups[groupID].Icons[currentIconID])
+		end
+
+		core:Group_UpdateAll()
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Group_Copy()
+		core:Clipboard_Clear()
+
+		clipboard.group = {
+			groupID = currentIcon.groupID,
+		}
+
+		core:Group_UpdateAll()
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Group_Paste()
+		if clipboard.group == nil then
+			return
+		end
+
+		local groupID = currentIcon.groupID
+
+		if clipboard.group.groupID == groupID then
+			return
+		end
+
+		DB.Groups[groupID].Rows = DB.Groups[clipboard.group.groupID].Rows
+		DB.Groups[groupID].Columns = DB.Groups[clipboard.group.groupID].Columns
+
+		for iconID = 1, maxColumns * maxRows do
+			local iconSettings = DB.Groups[clipboard.group.groupID].Icons[iconID]
+			if iconSettings ~= nil then
+				iconSettings = CopyTable(iconSettings)
+			end
+
+			DB.Groups[groupID].Icons[iconID] = iconSettings
+		end
+
+		core:Clipboard_Clear()
+
+		core:Group_UpdateAll()
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Group_Clear()
+		core:Clipboard_Clear()
+
+		local groupID = currentIcon.groupID
+
+		for iconID = 1, maxColumns * maxRows do
+			DB.Groups[groupID].Icons[iconID] = CopyTable(iconDefaults)
+		end
+
+		core:Group_UpdateAll()
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Row_Cut()
+		core:IconMenu_Row_Copy()
+		clipboard.row.groupID = nil
+		clipboard.row.index = nil
+		core:IconMenu_Row_Delete()
+	end
+
+	function core:IconMenu_Column_Copy()
+		core:Clipboard_Clear()
+
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+		local iconIndex = iconID - 1
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+
+		clipboard.column = {
+			groupID = groupID,
+			index = columnIndex,
+			icons = {},
+		}
+
+		for rowIndex = 0, maxRowIndex do
+			local currentIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex)
+			clipboard.column.icons[rowIndex] = CopyTable(DB.Groups[groupID].Icons[currentIconID])
+		end
+
+		core:Group_UpdateAll()
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Column_Cut()
+		core:IconMenu_Column_Copy()
+		clipboard.column.groupID = nil
+		clipboard.column.index = nil
+		core:IconMenu_Column_Delete()
+	end
+
+	function core:IconMenu_Row_Insert()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		local nonEmptyIcons = false
+
+		for columnIndex = 0, maxColumnIndex do
+			local lastIconID = core:Group_GetIconID(groupID, maxRowIndex, columnIndex)
+			local lastIcon = DB.Groups[groupID].Icons[lastIconID]
+			if not core:IconSettings_IsEmpty(lastIcon) then
+				nonEmptyIcons = true
+				break
+			end
+		end
+		if nonEmptyIcons then
+			if DB.Groups[groupID].Rows >= maxRows then
+				StaticPopup_Show("TELLMEWHEN_SIMPLE_DIALOG", "Some last row icons are not empty")
+				CloseDropDownMenus()
+				return
+			end
+			DB.Groups[groupID].Rows = DB.Groups[groupID].Rows + 1
+			maxRowIndex = maxRowIndex + 1
+		end
+
+		for columnIndex = 0, maxColumnIndex do
+			for otherRowIndex = maxRowIndex - 1, rowIndex, -1 do
+				local otherIconID = core:Group_GetIconID(groupID, otherRowIndex, columnIndex)
+
+				DB.Groups[groupID].Icons[otherIconID + maxColumnIndex + 1] = DB.Groups[groupID].Icons[otherIconID]
+			end
+
+			local thisRowIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex)
+			DB.Groups[groupID].Icons[thisRowIconID] = CopyTable(iconDefaults)
+		end
+
+		core:IconMenu_Row_Paste()
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Row_Paste()
+		local clipboardRow = clipboard.row
+		if not (clipboardRow and clipboardRow.icons) then
+			return
+		end
+
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		for columnIndex = 0, maxColumnIndex do
+			local thisRowIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex)
+			local iconSettings = clipboardRow.icons[columnIndex]
+			if iconSettings then
+				DB.Groups[groupID].Icons[thisRowIconID] = CopyTable(iconSettings)
+			end
+		end
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Row_Up()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		if rowIndex == 0 then
+			CloseDropDownMenus()
+			return
+		end
+
+		for columnIndex = 0, maxColumnIndex do
+			local upperRowIconID = core:Group_GetIconID(groupID, rowIndex - 1, columnIndex)
+			local upperRowIcon = DB.Groups[groupID].Icons[upperRowIconID]
+
+			local thisRowIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex)
+			local thisRowIcon = DB.Groups[groupID].Icons[thisRowIconID]
+
+			DB.Groups[groupID].Icons[upperRowIconID] = thisRowIcon
+			DB.Groups[groupID].Icons[thisRowIconID] = upperRowIcon
+		end
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Row_Down()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		if rowIndex == maxRowIndex then
+			CloseDropDownMenus()
+			return
+		end
+
+		for columnIndex = 0, maxColumnIndex do
+			local thisRowIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex)
+			local thisRowIcon = DB.Groups[groupID].Icons[thisRowIconID]
+
+			local lowerRowIconID = core:Group_GetIconID(groupID, rowIndex + 1, columnIndex)
+			local lowerRowIcon = DB.Groups[groupID].Icons[lowerRowIconID]
+
+			DB.Groups[groupID].Icons[thisRowIconID] = lowerRowIcon
+			DB.Groups[groupID].Icons[lowerRowIconID] = thisRowIcon
+		end
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Row_Clear()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		for columnIndex = 0, maxColumnIndex do
+			local thisRowIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex)
+			DB.Groups[groupID].Icons[thisRowIconID] = CopyTable(iconDefaults)
+		end
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Column_Insert()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local menuRowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+		local menuColumnIndex = iconIndex % (maxColumnIndex + 1)
+
+		local nonEmptyIcons = false
+		for rowIndex = 0, maxRowIndex do
+			local lastIconID = core:Group_GetIconID(groupID, rowIndex, maxColumnIndex)
+			local lastIcon = DB.Groups[groupID].Icons[lastIconID]
+			if not core:IconSettings_IsEmpty(lastIcon) then
+				nonEmptyIcons = true
+			end
+		end
+		if nonEmptyIcons then
+			if DB.Groups[groupID].Columns >= maxColumns then
+				StaticPopup_Show("TELLMEWHEN_SIMPLE_DIALOG", "Some last column icons are not empty")
+				CloseDropDownMenus()
+				return
+			end
+
+			local matrix = core:Group_GetMatrix(groupID)
+
+			DB.Groups[groupID].Columns = DB.Groups[groupID].Columns + 1
+			maxColumnIndex = maxColumnIndex + 1
+			currentIcon.iconID = core:Group_GetIconID(groupID, menuRowIndex, menuColumnIndex)
+
+			core:Group_LoadFromMatrix(groupID, matrix)
+		end
+
+		for rowIndex = 0, maxRowIndex do
+			for otherColumnIndex = maxColumnIndex - 1, menuColumnIndex, -1 do
+				local otherIconID = core:Group_GetIconID(groupID, rowIndex, otherColumnIndex)
+
+				DB.Groups[groupID].Icons[otherIconID + 1] = DB.Groups[groupID].Icons[otherIconID]
+			end
+			local thisColumnIconID = core:Group_GetIconID(groupID, rowIndex, menuColumnIndex)
+			DB.Groups[groupID].Icons[thisColumnIconID] = CopyTable(iconDefaults)
+		end
+
+		core:IconMenu_Column_Paste()
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Column_Paste()
+		local clipboardColumn = clipboard.column
+		if not (clipboardColumn and clipboardColumn.icons) then
+			return
+		end
+
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+
+		for rowIndex = 0, maxRowIndex do
+			local thisColumnIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex)
+			local iconSettings = clipboardColumn.icons[rowIndex]
+			if iconSettings then
+				DB.Groups[groupID].Icons[thisColumnIconID] = CopyTable(iconSettings)
+			end
+		end
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Column_Left()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+
+		if columnIndex == 0 then
+			CloseDropDownMenus()
+			return
+		end
+
+		for rowIndex = 0, maxRowIndex do
+			local leftColumnIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex - 1)
+			local leftColumnIcon = DB.Groups[groupID].Icons[leftColumnIconID]
+
+			local thisColumnIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex)
+			local thisColumnIcon = DB.Groups[groupID].Icons[thisColumnIconID]
+
+			DB.Groups[groupID].Icons[leftColumnIconID] = thisColumnIcon
+			DB.Groups[groupID].Icons[thisColumnIconID] = leftColumnIcon
+		end
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Column_Right()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+
+		if columnIndex == maxColumnIndex then
+			CloseDropDownMenus()
+			return
+		end
+
+		for rowIndex = 0, maxRowIndex do
+			local thisColumnIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex)
+			local thisColumnIcon = DB.Groups[groupID].Icons[thisColumnIconID]
+
+			local rightColumnIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex + 1)
+			local rightColumnIcon = DB.Groups[groupID].Icons[rightColumnIconID]
+
+			DB.Groups[groupID].Icons[thisColumnIconID] = rightColumnIcon
+			DB.Groups[groupID].Icons[rightColumnIconID] = thisColumnIcon
+		end
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Column_Clear()
+		local groupID = currentIcon.groupID
+		local iconID = currentIcon.iconID
+
+		local maxRowIndex = DB.Groups[groupID].Rows - 1
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+
+		for rowIndex = 0, maxRowIndex do
+			local thisColumnIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex)
+			DB.Groups[groupID].Icons[thisColumnIconID] = CopyTable(iconDefaults)
+		end
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Row_Add()
+		local groupID = currentIcon.groupID
+		if DB.Groups[groupID].Rows >= maxRows then
+			StaticPopup_Show("TELLMEWHEN_SIMPLE_DIALOG", "Maximum rows number is "..maxRows)
+			CloseDropDownMenus()
+			return
+		end
+		DB.Groups[groupID].Rows = DB.Groups[groupID].Rows + 1
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
+	end
+
+	function core:IconMenu_Column_Add()
+		local groupID = currentIcon.groupID
+
+		if DB.Groups[groupID].Columns >= maxColumns then
+			StaticPopup_Show("TELLMEWHEN_SIMPLE_DIALOG", "Maximum columns number is "..maxColumns)
+			CloseDropDownMenus()
+			return
+		end
+
+		local matrix = core:Group_GetMatrix(groupID)
+
+		DB.Groups[groupID].Columns = DB.Groups[groupID].Columns + 1
+
+		core:Group_LoadFromMatrix(groupID, matrix)
+
+		core:Clipboard_Clear()
+
+		core:Group_Update(groupID)
+
+		CloseDropDownMenus()
 	end
 
 	function core:IconMenu_ChooseName(text)
@@ -928,7 +2082,7 @@ do
 end
 
 -- ---------------
--- GROUP FUNCTIONs
+-- GROUP FUNCTIONS
 -- ---------------
 
 function core:Group_Update(groupID)
@@ -979,7 +2133,7 @@ function core:Group_Update(groupID)
 				end
 			end
 		end
-		for iconID = rows * columns + 1, maxRows * maxRows do
+		for iconID = rows * columns + 1, maxColumns * maxRows do
 			local icon = _G[groupName .. "_Icon" .. iconID]
 			if icon then
 				icon:Hide()
@@ -1010,6 +2164,51 @@ function core:Group_Update(groupID)
 			group:Show()
 		else
 			group:Hide()
+		end
+	end
+end
+
+function core:Group_GetIconID(groupID, rowIndex, columnIndex)
+	local columns = DB.Groups[groupID].Columns
+	return rowIndex * columns + columnIndex + 1
+end
+
+function core:Group_GetMatrix(groupID)
+
+	local matrix = {}
+
+	local maxRowIndex = DB.Groups[groupID].Rows - 1
+	local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+	for rowIndex = 0, maxRowIndex do
+		matrix[rowIndex + 1] = {}
+		for columnIndex = 0, maxColumnIndex do
+			local iconID = core:Group_GetIconID(groupID, rowIndex, columnIndex)
+			matrix[rowIndex + 1][columnIndex + 1] = DB.Groups[groupID].Icons[iconID]
+		end
+	end
+
+	return matrix
+end
+
+function core:Group_LoadFromMatrix(groupID, matrix)
+	local maxRowIndex = DB.Groups[groupID].Rows - 1
+	local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+	for rowIndex = 0, maxRowIndex do
+		for columnIndex = 0, maxColumnIndex do
+			local otherIconID = core:Group_GetIconID(groupID, rowIndex, columnIndex)
+
+			local matrixIcon = nil
+			local matrixRow = matrix[rowIndex + 1]
+			if matrixRow ~= nil then
+				matrixIcon = matrixRow[columnIndex + 1]
+			end
+			if matrixIcon == nil then
+				matrixIcon = CopyTable(iconDefaults)
+			end
+
+			DB.Groups[groupID].Icons[otherIconID] = matrixIcon
 		end
 	end
 end
@@ -1216,6 +2415,27 @@ function core:Icon_Update(icon, groupID, iconID)
 		icon:EnableMouse(1)
 		TellMeWhen_Desaturate(icon.texture, false)
 		core:Icon_ClearScripts(icon)
+
+		local maxColumnIndex = DB.Groups[groupID].Columns - 1
+
+		local iconIndex = iconID - 1
+
+		local columnIndex = iconIndex % (maxColumnIndex + 1)
+		local rowIndex = math.floor(iconIndex / (maxColumnIndex + 1))
+
+		if
+			clipboard.icon ~= nil and clipboard.icon.groupID == groupID and clipboard.icon.iconID == iconID
+			or
+			clipboard.row ~= nil and clipboard.row.groupID == groupID and clipboard.row.index == rowIndex
+			or
+			clipboard.column ~= nil and clipboard.column.groupID == groupID and clipboard.column.index == columnIndex
+			or
+			clipboard.group ~= nil and clipboard.group.groupID == groupID
+		then
+			icon.border:Show()
+		else
+			icon.border:Hide()
+		end
 	end
 end
 
@@ -1232,6 +2452,10 @@ function core:Icon_StatusCheck(icon, iconType)
 	elseif iconType == "cooldown" then
 		TellMeWhen_Icon_SpellCooldown_OnEvent(icon)
 	end
+end
+
+function core:IconSettings_IsEmpty(iconSettings)
+	return (not iconSettings.Enabled) and iconSettings.Name == "" and iconSettings.Type == ""
 end
 
 function core:TalentUpdate()
@@ -1439,7 +2663,7 @@ f:SetScript("OnEvent", function(self, event, arg1)
 						desc = L["Set the number of icon columns in this group."],
 						order = 8,
 						min = 1,
-						max = 8,
+						max = maxColumns,
 						step = 1
 					},
 					Rows = {
